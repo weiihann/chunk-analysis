@@ -24,11 +24,17 @@ type Config struct {
 
 	StartBlock uint64 `mapstructure:"START_BLOCK"`
 	EndBlock   uint64 `mapstructure:"END_BLOCK"`
+
+	// Retry configuration
+	RetryMaxAttempts int  `mapstructure:"RETRY_MAX_ATTEMPTS"`
+	RetryBaseDelay   int  `mapstructure:"RETRY_BASE_DELAY_MS"`
+	RetryMaxDelay    int  `mapstructure:"RETRY_MAX_DELAY_MS"`
+	RetryJitter      bool `mapstructure:"RETRY_JITTER"`
 }
 
 func (c *Config) String() string {
-	return fmt.Sprintf("Config{RPCURLs: %v, TraceDir: %s, LogLevel: %s, LogFormat: %s, LogFile: %s, StartBlock: %d, EndBlock: %d}",
-		c.RPCURLs, c.TraceDir, c.LogLevel, c.LogFormat, c.LogFile, c.StartBlock, c.EndBlock)
+	return fmt.Sprintf("Config{RPCURLs: %v, TraceDir: %s, LogLevel: %s, LogFormat: %s, LogFile: %s, StartBlock: %d, EndBlock: %d, RetryMaxAttempts: %d, RetryBaseDelay: %d, RetryMaxDelay: %d, RetryJitter: %t}",
+		c.RPCURLs, c.TraceDir, c.LogLevel, c.LogFormat, c.LogFile, c.StartBlock, c.EndBlock, c.RetryMaxAttempts, c.RetryBaseDelay, c.RetryMaxDelay, c.RetryJitter)
 }
 
 func LoadConfig(path string) (config Config, err error) {
@@ -103,6 +109,28 @@ func validateConfig(config Config) error {
 		}
 	}
 
+	// Retry configuration validation
+	if config.RetryMaxAttempts < 1 {
+		errors = append(errors, ValidationError{
+			Field:   "RETRY_MAX_ATTEMPTS",
+			Message: "retry max attempts must be at least 1",
+		})
+	}
+
+	if config.RetryBaseDelay < 0 {
+		errors = append(errors, ValidationError{
+			Field:   "RETRY_BASE_DELAY_MS",
+			Message: "retry base delay must be non-negative",
+		})
+	}
+
+	if config.RetryMaxDelay < config.RetryBaseDelay {
+		errors = append(errors, ValidationError{
+			Field:   "RETRY_MAX_DELAY_MS",
+			Message: "retry max delay must be greater than or equal to base delay",
+		})
+	}
+
 	if len(errors) > 0 {
 		return errors
 	}
@@ -116,6 +144,10 @@ func setDefaults() {
 	viper.SetDefault("LOG_LEVEL", "info")
 	viper.SetDefault("LOG_FORMAT", "text")
 	viper.SetDefault("LOG_FILE", "")
+	viper.SetDefault("RETRY_MAX_ATTEMPTS", 10)
+	viper.SetDefault("RETRY_BASE_DELAY_MS", 100)
+	viper.SetDefault("RETRY_MAX_DELAY_MS", 1000)
+	viper.SetDefault("RETRY_JITTER", true)
 }
 
 func expandPath(path string) string {

@@ -83,7 +83,7 @@ func (e *Engine) prepare(ctx context.Context) []*Analyzer {
 	}
 
 	for i := 0; i < len(e.config.RPCURLs); i++ {
-		client, err := NewRpcClient(e.config.RPCURLs[i], ctx)
+		client, err := NewRpcClient(e.config.RPCURLs[i], ctx, e.config)
 		if err != nil {
 			e.log.Error("failed to create rpc client", "error", err)
 			continue
