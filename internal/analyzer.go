@@ -31,9 +31,7 @@ type Analyzer struct {
 	client    *RpcClient
 	retriever *TraceRetriever
 	log       *slog.Logger
-	codeCache *lru.Cache
-
-	results chan<- TraceResult
+	codeCache *lru.Cache // This should be shared, or just put into the rpc client
 }
 
 type TraceResult struct {
@@ -64,7 +62,7 @@ func newTraceResult(code *Code, blockNum uint64) *TraceResult {
 	}
 }
 
-func NewAnalyzer(id int, client *RpcClient, retriever *TraceRetriever, results chan<- TraceResult) *Analyzer {
+func NewAnalyzer(id int, client *RpcClient, retriever *TraceRetriever) *Analyzer {
 	codeCache, err := lru.New(100000)
 	if err != nil {
 		panic(err)
@@ -75,42 +73,74 @@ func NewAnalyzer(id int, client *RpcClient, retriever *TraceRetriever, results c
 		retriever: retriever,
 		log:       logger.GetLogger(fmt.Sprintf("analyzer-%d", id)),
 		codeCache: codeCache,
-		results:   results,
 	}
 }
 
-func (a *Analyzer) Analyze(blockNum uint64) error {
+type BlockResult struct {
+	BlockNum uint64
+	Results  map[common.Address]*MergedTraceResult
+}
+
+type MergedTraceResult struct {
+	Bits         *BitSet
+	CodeOpsCount int
+}
+
+func (a *Analyzer) Analyze(blockNum uint64) (BlockResult, error) {
 	trace, err := a.retriever.GetTrace(blockNum)
 	if err != nil {
-		return err
+		return BlockResult{}, err
 	}
+
+	// Aggregate the results and send it back
+	// Merge all results per contract
+	results := make(chan TraceResult)
+	aggregated := make(map[common.Address]*MergedTraceResult)
+	done := make(chan struct{})
+	go func() {
+		for result := range results {
+			if existing, exists := aggregated[result.Addr]; exists {
+				existing.Bits.Merge(result.Bits)
+				existing.CodeOpsCount += result.CodeOpsCount
+			} else {
+				aggregated[result.Addr] = &MergedTraceResult{
+					Bits:         result.Bits,
+					CodeOpsCount: result.CodeOpsCount,
+				}
+			}
+		}
+		close(done)
+	}()
 
 	var workers errgroup.Group
 	workers.SetLimit(runtime.NumCPU())
 	for _, tx := range trace {
 		workers.Go(func() error {
-			return a.analyze(&tx, blockNum)
+			return a.analyze(&tx, blockNum, results)
 		})
 	}
 
-	return workers.Wait()
-	// for i, tx := range trace {
-	// 	fmt.Printf("analyzing tx %d\n", i)
-	// 	if err := a.analyze(&tx, blockNum); err != nil {
-	// 		return err
-	// 	}
-	// }
-	// return nil
+	if err := workers.Wait(); err != nil {
+		close(results)
+		return BlockResult{}, err
+	}
+	close(results)
+
+	<-done
+	return BlockResult{
+		BlockNum: blockNum,
+		Results:  aggregated,
+	}, nil
 }
 
-func (a *Analyzer) analyze(tr *TransactionTrace, blockNum uint64) error {
+func (a *Analyzer) analyze(tr *TransactionTrace, blockNum uint64, results chan<- TraceResult) error {
 	code, err := a.getCodeFromTx(tr.TxHash, blockNum)
 	if err != nil {
 		return err
 	}
 
 	index := 0
-	lastIndex, err := a.analyzeSteps(blockNum, code, &tr.Result, 1, index)
+	lastIndex, err := a.analyzeSteps(blockNum, code, &tr.Result, 1, index, results)
 	if err != nil {
 		return err
 	}
@@ -155,7 +185,7 @@ func (a *Analyzer) getCode(addr string, blockNum uint64) (*Code, error) {
 	return result, nil
 }
 
-func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult, depth int, index int) (int, error) {
+func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult, depth int, index int, results chan<- TraceResult) (int, error) {
 	steps := trace.Steps
 	stepsLen := len(steps)
 	if stepsLen == 0 {
@@ -200,10 +230,10 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 			if len(code.code) != 0 {
 				extRes := newTraceResult(code, blockNum)
 				extRes.CodeOpsCount++
-				a.results <- *extRes
+				results <- *extRes
 			}
 		case opLen == 4 && op[3] == 'L': // CALL
-			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace)
+			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace, results)
 			if err != nil {
 				return 0, err
 			}
@@ -212,7 +242,7 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 				continue
 			}
 		case opLen == 10 && op[9] == 'L': // STATICCALL
-			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace)
+			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace, results)
 			if err != nil {
 				return 0, err
 			}
@@ -221,7 +251,7 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 				continue
 			}
 		case opLen == 12 && op[0] == 'D': // DELEGATECALL
-			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace)
+			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace, results)
 			if err != nil {
 				return 0, err
 			}
@@ -230,7 +260,7 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 			}
 			continue
 		case opLen == 8 && op[2] == 'L': // CALLCODE
-			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace)
+			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace, results)
 			if err != nil {
 				return 0, err
 			}
@@ -243,11 +273,11 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 		index++
 	}
 
-	a.results <- *result
+	results <- *result
 	return index, nil
 }
 
-func (a *Analyzer) handleCallOps(stack []string, depth int, index int, blockNum uint64, trace *InnerResult) (int, error) {
+func (a *Analyzer) handleCallOps(stack []string, depth int, index int, blockNum uint64, trace *InnerResult, results chan<- TraceResult) (int, error) {
 	var err error
 	var newIndex int
 
@@ -258,7 +288,7 @@ func (a *Analyzer) handleCallOps(stack []string, depth int, index int, blockNum 
 	}
 
 	if len(code.code) != 0 {
-		newIndex, err = a.analyzeSteps(blockNum, code, trace, depth+1, index+1)
+		newIndex, err = a.analyzeSteps(blockNum, code, trace, depth+1, index+1, results)
 		if err != nil {
 			return 0, err
 		}
