@@ -119,3 +119,7 @@ func (b *BitSet) Merge(other *BitSet) *BitSet {
 func (b *BitSet) IsFull() bool {
 	return b.Count() == int(b.size)
 }
+
+func (b *BitSet) Size() uint32 {
+	return b.size
+}

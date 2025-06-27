@@ -14,7 +14,8 @@ type Config struct {
 	RPCURLs []string `mapstructure:"RPC_URLS"`
 
 	// File storage configuration
-	DataDir string `mapstructure:"DATA_DIR"`
+	TraceDir  string `mapstructure:"TRACE_DIR"`
+	ResultDir string `mapstructure:"RESULT_DIR"`
 
 	// Logging configuration
 	LogLevel  string `mapstructure:"LOG_LEVEL"`
@@ -22,11 +23,12 @@ type Config struct {
 	LogFile   string `mapstructure:"LOG_FILE"`
 
 	StartBlock uint64 `mapstructure:"START_BLOCK"`
+	EndBlock   uint64 `mapstructure:"END_BLOCK"`
 }
 
 func (c *Config) String() string {
-	return fmt.Sprintf("Config{RPCURLs: %v, DataDir: %s, LogLevel: %s, LogFormat: %s, LogFile: %s, StartBlock: %d}",
-		c.RPCURLs, c.DataDir, c.LogLevel, c.LogFormat, c.LogFile, c.StartBlock)
+	return fmt.Sprintf("Config{RPCURLs: %v, TraceDir: %s, LogLevel: %s, LogFormat: %s, LogFile: %s, StartBlock: %d, EndBlock: %d}",
+		c.RPCURLs, c.TraceDir, c.LogLevel, c.LogFormat, c.LogFile, c.StartBlock, c.EndBlock)
 }
 
 func LoadConfig(path string) (config Config, err error) {
@@ -61,7 +63,7 @@ func LoadConfig(path string) (config Config, err error) {
 	}
 
 	// Expand data directory paths
-	config.DataDir = expandPath(config.DataDir)
+	config.TraceDir = expandPath(config.TraceDir)
 	if config.LogFile != "" {
 		config.LogFile = expandPath(config.LogFile)
 	}

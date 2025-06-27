@@ -62,12 +62,7 @@ func newTraceResult(code *Code, blockNum uint64) *TraceResult {
 	}
 }
 
-func NewAnalyzer(id int, client *RpcClient, retriever *TraceRetriever) *Analyzer {
-	codeCache, err := lru.New(100000)
-	if err != nil {
-		panic(err)
-	}
-
+func NewAnalyzer(id int, client *RpcClient, retriever *TraceRetriever, codeCache *lru.Cache) *Analyzer {
 	return &Analyzer{
 		client:    client,
 		retriever: retriever,
@@ -116,6 +111,7 @@ func (a *Analyzer) Analyze(blockNum uint64) (BlockResult, error) {
 	workers.SetLimit(runtime.NumCPU())
 	for _, tx := range trace {
 		workers.Go(func() error {
+			// fmt.Printf("analyzing tx %d\n", i)
 			return a.analyze(&tx, blockNum, results)
 		})
 	}
@@ -125,6 +121,23 @@ func (a *Analyzer) Analyze(blockNum uint64) (BlockResult, error) {
 		return BlockResult{}, err
 	}
 	close(results)
+
+	// ---- Uncomment below to debug
+	// for i, tx := range trace {
+	// 	fmt.Printf("analyzing tx %d\n", i)
+	// 	if err := a.analyze(&tx, blockNum, results); err != nil {
+	// 		return BlockResult{}, err
+	// 	}
+	// }
+	// close(results)
+
+	// ---- Uncomment below to debug
+	// targetTrace := trace[32]
+	// fmt.Println(targetTrace.TxHash)
+	// if err := a.analyze(&targetTrace, blockNum, results); err != nil {
+	// 	return BlockResult{}, err
+	// }
+	// close(results)
 
 	<-done
 	return BlockResult{
@@ -199,18 +212,29 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 
 	result := newTraceResult(code, blockNum)
 	for index < stepsLen {
+		// if index == 1073 { // TODO: remove
+		// 	a.log.Info("step 1073")
+		// }
 		step := steps[index]
-		// fmt.Printf("step %d: %s\n", index, step.Op) // TODO: remove
+		// fmt.Printf("step %d: pc %d, op %s\n", index, step.PC, step.Op) // TODO: remove
 
 		// We detect that we went back to the previous depth, so this is the end of the current depth
 		if step.Depth == depth-1 {
 			break
 		}
 
-		result.Bits.Set(uint32(step.PC))
-
 		op := step.Op
 		opLen := len(op)
+
+		pc := step.PC
+		if pc == uint64(len(code.code)) && op[0] == 'S' {
+			// If we've reached the end of the code, this means "STOP" was executed
+			// So increment the step index and break to return to the previous depth
+			index++
+			break
+		}
+
+		result.Bits.Set(uint32(pc))
 
 		switch {
 		case op == OpPush0:
@@ -306,9 +330,7 @@ func (a *Analyzer) handlePush(bits *BitSet, step *TraceStep) error {
 
 	pc := uint32(step.PC)
 	for i := 0; i < pushNumInt; i++ {
-		if _, err := bits.SetWithCheck(pc + 1 + uint32(i)); err != nil {
-			return err
-		}
+		bits.Set(pc + 1 + uint32(i))
 	}
 	return nil
 }

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -32,28 +31,25 @@ func executeRun(cmd *cobra.Command, args []string) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	var clients []*internal.RpcClient
-	for _, rpcURL := range config.RPCURLs {
-		rpcClient, err := internal.NewRpcClient(rpcURL, ctx)
-		if err != nil {
-			log.Error("Failed to create RPC client", "error", err)
-			os.Exit(1)
-		}
-		defer rpcClient.Close()
-		clients = append(clients, rpcClient)
+	engine := internal.NewEngine(&config)
+
+	// Run engine in a goroutine so we can handle signals during execution
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		engine.Run(ctx)
+		log.Info("Engine finished processing all blocks")
+	}()
+
+	// Wait for either completion or signal
+	select {
+	case <-done:
+		log.Info("Analysis completed successfully, shutting down...")
+	case <-sigChan:
+		log.Info("Received shutdown signal, stopping all services...")
+		cancel()
+		<-done // Wait for engine to finish cleanup
 	}
-
-	for _, client := range clients {
-		res, err := client.Code("0x6d3481c2bf5d9427226406f47b5fe6f6751437b0")
-		if err != nil {
-			log.Error("Failed to trace block", "error", err)
-			os.Exit(1)
-		}
-		fmt.Println(res)
-	}
-
-	// <-sigChan
-	log.Info("Received shutdown signal, stopping all services...")
-	cancel()
 }

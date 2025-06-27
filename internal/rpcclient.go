@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
 )
@@ -38,10 +39,10 @@ type TransactionTrace struct {
 
 // InnerResult represents the raw result structure
 type InnerResult struct {
-	Steps       []TraceStep `json:"structLogs"`
-	Failed      bool        `json:"failed"`
-	Gas         uint64      `json:"gas"`
-	ReturnValue string      `json:"returnValue"`
+	Steps  []TraceStep `json:"structLogs"`
+	Failed bool        `json:"failed"`
+	// Gas         uint64      `json:"gas"`
+	// ReturnValue string      `json:"returnValue"`
 }
 
 type TraceStep struct {
@@ -81,9 +82,9 @@ func (c *RpcClient) TransactionByHash(hash string) (TxByHash, error) {
 	return result, nil
 }
 
-func (c *RpcClient) Code(address string) (string, error) {
+func (c *RpcClient) Code(address common.Address, blockNum uint64) (string, error) {
 	var result string
-	if err := c.client.CallContext(c.ctx, &result, "eth_getCode", address); err != nil {
+	if err := c.client.CallContext(c.ctx, &result, "eth_getCode", address, hexutil.EncodeUint64(blockNum)); err != nil {
 		return "", err
 	}
 
