@@ -33,12 +33,12 @@ type Analyzer struct {
 	log       *slog.Logger
 	codeCache *lru.Cache
 
-	results chan<- *TraceResult
+	results chan<- TraceResult
 }
 
 type TraceResult struct {
 	BlockNum uint64
-	Addr     string
+	Addr     common.Address
 	Bits     *BitSet
 
 	// These opcodes access the entire contract code, keep them separate so we can distinguish between
@@ -47,8 +47,12 @@ type TraceResult struct {
 	CodeOpsCount int // CODESIZE, CODECOPY, EXTCODESIZE, EXTCODEHASH, EXTCODECOPY
 }
 
+func (t *TraceResult) String() string {
+	return fmt.Sprintf("BlockNum: %d, Addr: %s, Bits: %d, Chunks: %d, CodeOpsCount: %d", t.BlockNum, t.Addr.Hex(), t.Bits.Count(), t.Bits.ChunkCount(), t.CodeOpsCount)
+}
+
 type Code struct {
-	addr string
+	addr common.Address
 	code []byte
 }
 
@@ -60,7 +64,7 @@ func newTraceResult(code *Code, blockNum uint64) *TraceResult {
 	}
 }
 
-func NewAnalyzer(id int, client *RpcClient, retriever *TraceRetriever, results chan<- *TraceResult) *Analyzer {
+func NewAnalyzer(id int, client *RpcClient, retriever *TraceRetriever, results chan<- TraceResult) *Analyzer {
 	codeCache, err := lru.New(100000)
 	if err != nil {
 		panic(err)
@@ -90,6 +94,13 @@ func (a *Analyzer) Analyze(blockNum uint64) error {
 	}
 
 	return workers.Wait()
+	// for i, tx := range trace {
+	// 	fmt.Printf("analyzing tx %d\n", i)
+	// 	if err := a.analyze(&tx, blockNum); err != nil {
+	// 		return err
+	// 	}
+	// }
+	// return nil
 }
 
 func (a *Analyzer) analyze(tr *TransactionTrace, blockNum uint64) error {
@@ -98,9 +109,14 @@ func (a *Analyzer) analyze(tr *TransactionTrace, blockNum uint64) error {
 		return err
 	}
 
-	counter := 0
-	if err := a.analyzeSteps(blockNum, code, &tr.Result, 1, &counter); err != nil {
+	index := 0
+	lastIndex, err := a.analyzeSteps(blockNum, code, &tr.Result, 1, index)
+	if err != nil {
 		return err
+	}
+
+	if lastIndex != len(tr.Result.Steps) {
+		return fmt.Errorf("lastIndex mismatch: expected %d, got %d", len(tr.Result.Steps), lastIndex)
 	}
 
 	return nil
@@ -116,12 +132,13 @@ func (a *Analyzer) getCodeFromTx(txHash string, blockNum uint64) (*Code, error) 
 }
 
 func (a *Analyzer) getCode(addr string, blockNum uint64) (*Code, error) {
-	cacheKey := codeCacheKey(addr, blockNum)
+	addrHex := common.HexToAddress(addr)
+	cacheKey := codeCacheKey(addrHex, blockNum)
 	if cached, ok := a.codeCache.Get(cacheKey); ok {
 		return cached.(*Code), nil
 	}
 
-	code, err := a.client.Code(common.HexToAddress(addr), blockNum)
+	code, err := a.client.Code(addrHex, blockNum)
 	if err != nil {
 		return nil, err
 	}
@@ -131,28 +148,29 @@ func (a *Analyzer) getCode(addr string, blockNum uint64) (*Code, error) {
 	}
 
 	result := &Code{
-		addr: addr,
+		addr: addrHex,
 		code: codeBytes,
 	}
 	a.codeCache.Add(cacheKey, result)
 	return result, nil
 }
 
-func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult, depth int, counter *int) error {
+func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult, depth int, index int) (int, error) {
 	steps := trace.Steps
 	stepsLen := len(steps)
 	if stepsLen == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// Sanity check on the depth
-	if depth != steps[*counter].Depth {
-		return fmt.Errorf("(%d) depth mismatch: expected %d, got %d", *counter, depth, steps[*counter].Depth)
+	if depth != steps[index].Depth {
+		return 0, fmt.Errorf("(%d) depth mismatch: expected %d, got %d", index, depth, steps[index].Depth)
 	}
 
 	result := newTraceResult(code, blockNum)
-	for *counter < stepsLen {
-		step := steps[*counter]
+	for index < stepsLen {
+		step := steps[index]
+		// fmt.Printf("step %d: %s\n", index, step.Op) // TODO: remove
 
 		// We detect that we went back to the previous depth, so this is the end of the current depth
 		if step.Depth == depth-1 {
@@ -169,7 +187,7 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 			// Do nothing
 		case opLen > 4 && op[:2] == "PU": // PUSH opcodes
 			if err := a.handlePush(result.Bits, &step); err != nil {
-				return err
+				return 0, err
 			}
 		case opLen > 4 && op[:3] == "COD": // CODEHASH, CODESIZE
 			result.CodeOpsCount++
@@ -177,51 +195,75 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 			stackTop := step.Stack[len(step.Stack)-1]
 			code, err := a.getCode(stackTop, blockNum)
 			if err != nil && !trace.Failed {
-				return err
+				return 0, err
 			}
 			if len(code.code) != 0 {
 				extRes := newTraceResult(code, blockNum)
 				extRes.CodeOpsCount++
-				a.results <- extRes
+				a.results <- *extRes
 			}
 		case opLen == 4 && op[3] == 'L': // CALL
-			if err := a.handleCallOps(step.Stack, depth, counter, blockNum, trace); err != nil {
-				return err
+			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace)
+			if err != nil {
+				return 0, err
+			}
+			if newIndex != 0 {
+				index = newIndex
+				continue
 			}
 		case opLen == 10 && op[9] == 'L': // STATICCALL
-			if err := a.handleCallOps(step.Stack, depth, counter, blockNum, trace); err != nil {
-				return err
+			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace)
+			if err != nil {
+				return 0, err
+			}
+			if newIndex != 0 {
+				index = newIndex
+				continue
 			}
 		case opLen == 12 && op[0] == 'D': // DELEGATECALL
-			if err := a.handleCallOps(step.Stack, depth, counter, blockNum, trace); err != nil {
-				return err
+			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace)
+			if err != nil {
+				return 0, err
 			}
+			if newIndex != 0 {
+				index = newIndex
+			}
+			continue
 		case opLen == 8 && op[2] == 'L': // CALLCODE
-			if err := a.handleCallOps(step.Stack, depth, counter, blockNum, trace); err != nil {
-				return err
+			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace)
+			if err != nil {
+				return 0, err
+			}
+			if newIndex != 0 {
+				index = newIndex
+				continue
 			}
 		}
 
-		*counter++
+		index++
 	}
 
-	a.results <- result
-	return nil
+	a.results <- *result
+	return index, nil
 }
 
-func (a *Analyzer) handleCallOps(stack []string, depth int, counter *int, blockNum uint64, trace *InnerResult) error {
+func (a *Analyzer) handleCallOps(stack []string, depth int, index int, blockNum uint64, trace *InnerResult) (int, error) {
+	var err error
+	var newIndex int
+
 	stackSecond := stack[len(stack)-2]
 	code, err := a.getCode(stackSecond, blockNum)
 	if err != nil && !trace.Failed {
-		return err
+		return 0, err
 	}
+
 	if len(code.code) != 0 {
-		*counter++
-		if err := a.analyzeSteps(blockNum, code, trace, depth+1, counter); err != nil {
-			return err
+		newIndex, err = a.analyzeSteps(blockNum, code, trace, depth+1, index+1)
+		if err != nil {
+			return 0, err
 		}
 	}
-	return nil
+	return newIndex, nil
 }
 
 // PUSHX opcodes also access the bytecode, add it to the result accordingly
@@ -241,6 +283,6 @@ func (a *Analyzer) handlePush(bits *BitSet, step *TraceStep) error {
 	return nil
 }
 
-func codeCacheKey(addr string, blockNum uint64) string {
-	return fmt.Sprintf("%s:%d", addr, blockNum)
+func codeCacheKey(addr common.Address, blockNum uint64) string {
+	return fmt.Sprintf("%s:%d", addr.Hex(), blockNum)
 }
