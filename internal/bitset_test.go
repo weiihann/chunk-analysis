@@ -593,6 +593,339 @@ func TestBitSet_WordBoundaries(t *testing.T) {
 	})
 }
 
+func TestBitSet_SetWithCheck(t *testing.T) {
+	tests := []struct {
+		name        string
+		size        uint32
+		index       uint32
+		expectError bool
+	}{
+		{
+			name:        "valid index at start",
+			size:        10,
+			index:       0,
+			expectError: false,
+		},
+		{
+			name:        "valid index in middle",
+			size:        10,
+			index:       5,
+			expectError: false,
+		},
+		{
+			name:        "valid index at end",
+			size:        10,
+			index:       9,
+			expectError: false,
+		},
+		{
+			name:        "invalid index equals size",
+			size:        10,
+			index:       10,
+			expectError: true,
+		},
+		{
+			name:        "invalid index greater than size",
+			size:        10,
+			index:       100,
+			expectError: true,
+		},
+		{
+			name:        "valid index at word boundary",
+			size:        100,
+			index:       31,
+			expectError: false,
+		},
+		{
+			name:        "valid index after word boundary",
+			size:        100,
+			index:       32,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bs := NewBitSet(tt.size)
+			originalCount := bs.Count()
+
+			result, err := bs.SetWithCheck(tt.index)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("SetWithCheck(%d) expected error but got none", tt.index)
+				}
+				if result != nil {
+					t.Errorf("SetWithCheck(%d) expected nil result on error but got %v", tt.index, result)
+				}
+				// Verify the original bitset wasn't modified
+				if bs.Count() != originalCount {
+					t.Errorf("SetWithCheck(%d) modified original bitset on error", tt.index)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("SetWithCheck(%d) unexpected error: %v", tt.index, err)
+				}
+				if result != bs {
+					t.Error("SetWithCheck() should return the same BitSet instance")
+				}
+				// Verify the bit was actually set
+				if bs.Count() != originalCount+1 {
+					t.Errorf("SetWithCheck(%d) expected count to increase by 1", tt.index)
+				}
+			}
+		})
+	}
+}
+
+func TestBitSet_Merge(t *testing.T) {
+	tests := []struct {
+		name          string
+		size          uint32
+		setBits1      []uint32
+		setBits2      []uint32
+		expectedCount int
+		shouldPanic   bool
+	}{
+		{
+			name:          "merge empty bitsets",
+			size:          10,
+			setBits1:      []uint32{},
+			setBits2:      []uint32{},
+			expectedCount: 0,
+		},
+		{
+			name:          "merge empty with non-empty",
+			size:          10,
+			setBits1:      []uint32{},
+			setBits2:      []uint32{1, 5, 9},
+			expectedCount: 3,
+		},
+		{
+			name:          "merge non-empty with empty",
+			size:          10,
+			setBits1:      []uint32{2, 4, 6},
+			setBits2:      []uint32{},
+			expectedCount: 3,
+		},
+		{
+			name:          "merge disjoint sets",
+			size:          10,
+			setBits1:      []uint32{0, 2, 4},
+			setBits2:      []uint32{1, 3, 5},
+			expectedCount: 6,
+		},
+		{
+			name:          "merge overlapping sets",
+			size:          10,
+			setBits1:      []uint32{0, 2, 4, 6},
+			setBits2:      []uint32{2, 4, 6, 8},
+			expectedCount: 5, // 0, 2, 4, 6, 8
+		},
+		{
+			name:          "merge identical sets",
+			size:          10,
+			setBits1:      []uint32{1, 3, 5, 7, 9},
+			setBits2:      []uint32{1, 3, 5, 7, 9},
+			expectedCount: 5,
+		},
+		{
+			name:          "merge across word boundaries",
+			size:          100,
+			setBits1:      []uint32{0, 31, 32, 63},
+			setBits2:      []uint32{15, 31, 47, 64},
+			expectedCount: 7, // 0, 15, 31, 32, 47, 63, 64
+		},
+		{
+			name:          "merge full single word",
+			size:          32,
+			setBits1:      generateSequence(0, 16),  // First half
+			setBits2:      generateSequence(16, 32), // Second half
+			expectedCount: 32,
+		},
+		{
+			name:          "merge multiple full words",
+			size:          96,
+			setBits1:      generateSequence(0, 64),  // First two words
+			setBits2:      generateSequence(32, 96), // Overlapping last word + third word
+			expectedCount: 96,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.shouldPanic {
+				defer func() {
+					if r := recover(); r == nil {
+						t.Error("Merge() should have panicked for mismatched sizes")
+					}
+				}()
+			}
+
+			// Create and set up first bitset
+			bs1 := NewBitSet(tt.size)
+			for _, index := range tt.setBits1 {
+				bs1.Set(index)
+			}
+
+			// Create and set up second bitset
+			bs2 := NewBitSet(tt.size)
+			for _, index := range tt.setBits2 {
+				bs2.Set(index)
+			}
+
+			// Perform merge
+			result := bs1.Merge(bs2)
+
+			if !tt.shouldPanic {
+				// Verify result is the same instance
+				if result != bs1 {
+					t.Error("Merge() should return the same BitSet instance")
+				}
+
+				// Verify the count is correct
+				if bs1.Count() != tt.expectedCount {
+					t.Errorf("Merge() count = %d, expected %d", bs1.Count(), tt.expectedCount)
+				}
+
+				// Verify bs2 is unchanged
+				expectedBs2Count := len(tt.setBits2)
+				if bs2.Count() != expectedBs2Count {
+					t.Errorf("Merge() modified bs2, count = %d, expected %d", bs2.Count(), expectedBs2Count)
+				}
+
+				// Note: We verified correctness through the total count check above.
+				// Individual bit verification would require exposing internal state or
+				// additional getter methods, but the count verification is sufficient.
+			}
+		})
+	}
+
+	// Test size mismatch panic
+	t.Run("size mismatch panic", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Merge() should have panicked for mismatched sizes")
+			}
+		}()
+
+		bs1 := NewBitSet(10)
+		bs2 := NewBitSet(20)
+		bs1.Merge(bs2)
+	})
+}
+
+func TestBitSet_IsFull(t *testing.T) {
+	tests := []struct {
+		name     string
+		size     uint32
+		setBits  []uint32
+		expected bool
+	}{
+		{
+			name:     "empty bitset",
+			size:     10,
+			setBits:  []uint32{},
+			expected: false,
+		},
+		{
+			name:     "single bit set in small bitset",
+			size:     10,
+			setBits:  []uint32{5},
+			expected: false,
+		},
+		{
+			name:     "all bits set in small bitset",
+			size:     5,
+			setBits:  []uint32{0, 1, 2, 3, 4},
+			expected: true,
+		},
+		{
+			name:     "almost all bits set",
+			size:     10,
+			setBits:  []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8}, // missing index 9
+			expected: false,
+		},
+		{
+			name:     "all bits set in single word",
+			size:     32,
+			setBits:  generateSequence(0, 32),
+			expected: true,
+		},
+		{
+			name:     "almost all bits set in single word",
+			size:     32,
+			setBits:  generateSequence(0, 31), // missing last bit
+			expected: false,
+		},
+		{
+			name:     "all bits set across multiple words",
+			size:     100,
+			setBits:  generateSequence(0, 100),
+			expected: true,
+		},
+		{
+			name:     "almost all bits set across multiple words",
+			size:     100,
+			setBits:  generateSequence(1, 100), // missing first bit
+			expected: false,
+		},
+		{
+			name:     "single bit bitset - empty",
+			size:     1,
+			setBits:  []uint32{},
+			expected: false,
+		},
+		{
+			name:     "single bit bitset - full",
+			size:     1,
+			setBits:  []uint32{0},
+			expected: true,
+		},
+		{
+			name:     "gaps in multiple words",
+			size:     96,
+			setBits:  append(append(generateSequence(0, 32), generateSequence(33, 64)...), generateSequence(65, 96)...), // missing bits 32 and 64
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bs := NewBitSet(tt.size)
+
+			// Set the specified bits
+			for _, index := range tt.setBits {
+				bs.Set(index)
+			}
+
+			result := bs.IsFull()
+			if result != tt.expected {
+				t.Errorf("IsFull() = %v, expected %v (count: %d, size: %d)", result, tt.expected, bs.Count(), tt.size)
+			}
+
+			// Additional verification: if IsFull() returns true, Count() should equal size
+			if result && bs.Count() != int(tt.size) {
+				t.Errorf("IsFull() returned true but Count() = %d, size = %d", bs.Count(), tt.size)
+			}
+
+			// Additional verification: if Count() equals size, IsFull() should return true
+			if bs.Count() == int(tt.size) && !result {
+				t.Errorf("Count() equals size (%d) but IsFull() returned false", tt.size)
+			}
+		})
+	}
+}
+
+// Helper function to generate a sequence of uint32 values
+func generateSequence(start, end uint32) []uint32 {
+	result := make([]uint32, end-start)
+	for i := start; i < end; i++ {
+		result[i-start] = i
+	}
+	return result
+}
+
 // Helper functions
 func abs(x float64) float64 {
 	if x < 0 {
