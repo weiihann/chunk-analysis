@@ -132,7 +132,7 @@ func (a *Analyzer) Analyze(blockNum uint64) (BlockResult, error) {
 	// close(results)
 
 	// ---- Uncomment below to debug
-	// targetTrace := trace[23]
+	// targetTrace := trace[161]
 	// fmt.Println(targetTrace.TxHash)
 	// if err := a.analyze(&targetTrace, blockNum, results); err != nil {
 	// 	return BlockResult{}, err
@@ -156,9 +156,9 @@ func (a *Analyzer) analyze(tr *TransactionTrace, blockNum uint64, results chan<-
 		return nil
 	}
 
-	index := 0
-	res := newTraceResult(code, blockNum)
-	lastIndex, err := a.analyzeSteps2(blockNum, &tr.Result, index, res, false, results)
+	// index := 0
+	// res := newTraceResult(code, blockNum)
+	lastIndex, err := a.analyzeSteps(blockNum, code, &tr.Result, 1, 0, results)
 	if err != nil {
 		return err
 	}
@@ -215,16 +215,23 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 		return 0, fmt.Errorf("(%d) depth mismatch: expected %d, got %d", index, depth, steps[index].Depth)
 	}
 
+	isCreate := false
 	result := newTraceResult(code, blockNum)
+outer:
 	for index < stepsLen {
-		if index == 4360 { // TODO: remove
-			a.log.Info("step 1073")
-		}
 		step := steps[index]
-		fmt.Printf("step %d: pc %d, op %s\n", index, step.PC, step.Op) // TODO: remove
+		// if index == 6947 { // TODO: remove
+		// 	a.log.Info("step 1073")
+		// }
+		// fmt.Printf("step %d: pc %d, op %s depth %d fdepth %d\n", index, step.PC, step.Op, step.Depth, depth) // TODO: remove
 
 		// We detect that we went back to the previous depth, so this is the end of the current depth
 		if step.Depth == depth-1 {
+			if isCreate {
+				isCreate = false
+				depth--
+				continue
+			}
 			break
 		}
 
@@ -232,34 +239,42 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 		opLen := len(op)
 
 		pc := step.PC
-		if pc == uint64(len(code.code)) && op[0] == 'S' {
+		if pc == uint64(len(code.code)) {
 			// If we've reached the end of the code, this means "STOP" was executed
 			// So increment the step index and break to return to the previous depth
 			index++
 			break
 		}
 
-		result.Bits.Set(uint32(pc))
+		if !isCreate {
+			result.Bits.Set(uint32(pc))
+		}
 
 		switch {
 		case op == OpPush0:
 			// Do nothing
 		case opLen > 4 && op[:2] == "PU": // PUSH opcodes
-			if err := a.handlePush(result.Bits, &step); err != nil {
-				return 0, err
+			if !isCreate {
+				if err := a.handlePush(result.Bits, &step); err != nil {
+					return 0, err
+				}
 			}
 		case opLen > 4 && op[:3] == "COD": // CODEHASH, CODESIZE
-			result.CodeOpsCount++
-		case opLen == 11 && op[0] == 'E': // EXTCODESIZE, EXTCODEHASH, EXTCODECOPY
-			stackTop := step.Stack[len(step.Stack)-1]
-			code, err := a.getCode(stackTop, blockNum)
-			if err != nil && !trace.Failed {
-				return 0, err
+			if !isCreate {
+				result.CodeOpsCount++
 			}
-			if len(code.code) != 0 {
-				extRes := newTraceResult(code, blockNum)
-				extRes.CodeOpsCount++
-				results <- *extRes
+		case opLen == 11 && op[0] == 'E': // EXTCODESIZE, EXTCODEHASH, EXTCODECOPY
+			if !isCreate {
+				stackTop := step.Stack[len(step.Stack)-1]
+				code, err := a.getCode(stackTop, blockNum)
+				if err != nil && !trace.Failed {
+					return 0, err
+				}
+				if len(code.code) != 0 {
+					extRes := newTraceResult(code, blockNum)
+					extRes.CodeOpsCount++
+					results <- *extRes
+				}
 			}
 		case opLen == 4 && op[3] == 'L': // CALL
 			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace, results)
@@ -286,8 +301,8 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 			}
 			if newIndex != 0 {
 				index = newIndex
+				continue
 			}
-			continue
 		case opLen == 8 && op[2] == 'L': // CALLCODE
 			newIndex, err := a.handleCallOps(step.Stack, depth, index, blockNum, trace, results)
 			if err != nil {
@@ -297,6 +312,12 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 				index = newIndex
 				continue
 			}
+		case opLen == 4 && op == "STOP":
+			index++
+			break outer
+		case opLen >= 6 && op[:2] == "CR": // CREATE, CREATE2
+			depth++
+			isCreate = true
 		}
 
 		index++
@@ -306,7 +327,7 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, code *Code, trace *InnerResult,
 	return index, nil
 }
 
-func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, index int, res *TraceResult, isCreate bool, results chan<- TraceResult) (int, error) {
+func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, index int, res *TraceResult, isCreate bool, createDepth int, results chan<- TraceResult) (int, error) {
 	steps := trace.Steps
 	if len(steps) == 0 {
 		return 0, nil
@@ -319,15 +340,18 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, index int,
 
 	for index < len(steps) {
 		step := steps[index]
-		// if index == 6670 {
+		// if index == 4454 || index == 4422 {
 		// 	a.log.Info("index 209")
 		// }
 		// fmt.Printf("step %d: pc %d, op %s depth %d\n", index, step.PC, step.Op, step.Depth) // TODO: remove
 
 		if prevStep != nil {
 			if prevStep.Depth > step.Depth {
-				if isCreate { // contract creation is done, we are back to the original depth
+				// TODO: this has problem. Basically constructor logic can contain calls to other contracts
+				// so at the subcalls of the CREATE, this will break
+				if isCreate && step.Depth == createDepth { // contract creation is done, we are back to the original depth
 					isCreate = false
+					createDepth = 0
 					if step.PC == uint64(res.Bits.Size()) { // Encountered STOP
 						prevStep = &step
 						index++
@@ -348,6 +372,7 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, index int,
 				// So set the isCreate flag to true, continue iterating until we change depth
 				if len(prevStep.Op) >= 6 && prevStep.Op[:2] == "CR" {
 					isCreate = true
+					createDepth = step.Depth
 					prevStep = &step
 					index++
 					continue
@@ -366,7 +391,7 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, index int,
 						return 0, err
 					}
 
-					newIndex, err := a.analyzeSteps2(blockNum, trace, index+1, res, isCreate, results)
+					newIndex, err := a.analyzeSteps2(blockNum, trace, index+1, res, isCreate, createDepth, results)
 					if err != nil {
 						return 0, err
 					}
@@ -429,6 +454,14 @@ func (a *Analyzer) handleOps(step *TraceStep, res *TraceResult, blockNum uint64,
 func (a *Analyzer) handleCallOps(stack []string, depth int, index int, blockNum uint64, trace *InnerResult, results chan<- TraceResult) (int, error) {
 	var err error
 	var newIndex int
+
+	nextIndex := index + 1
+	// We expect the next step to be at the next depth, if that didn't happen, means
+	// something went wrong, so we return 0 to indicate that we should continue
+	// iterating the steps
+	if nextIndex >= len(trace.Steps) || trace.Steps[nextIndex].Depth != depth+1 {
+		return 0, nil
+	}
 
 	stackSecond := stack[len(stack)-2]
 	code, err := a.getCode(stackSecond, blockNum)
