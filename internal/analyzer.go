@@ -515,7 +515,7 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, codes map[
 		switch {
 		case opLen == 4 && op[:2] == "ST": // STOP
 			prevDepth = depth
-			if step.PC <= uint64(res.Bits.Size()) {
+			if step.PC < uint64(res.Bits.Size()) {
 				res.Bits.Set(uint32(step.PC))
 			}
 			continue
