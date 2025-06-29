@@ -54,7 +54,7 @@ func (e *Engine) Run(ctx context.Context) {
 			writer := NewResultWriter(e.config.ResultDir, workerIdx)
 
 			for block := start; block <= end; block++ {
-				result, err := worker.Analyze(block)
+				result, err := worker.Analyze2(block)
 				if err != nil {
 					return err
 				}
