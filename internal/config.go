@@ -144,9 +144,9 @@ func setDefaults() {
 	viper.SetDefault("LOG_LEVEL", "info")
 	viper.SetDefault("LOG_FORMAT", "text")
 	viper.SetDefault("LOG_FILE", "")
-	viper.SetDefault("RETRY_MAX_ATTEMPTS", 10)
-	viper.SetDefault("RETRY_BASE_DELAY_MS", 100)
-	viper.SetDefault("RETRY_MAX_DELAY_MS", 1000)
+	viper.SetDefault("RETRY_MAX_ATTEMPTS", 100)
+	viper.SetDefault("RETRY_BASE_DELAY_MS", 1000)
+	viper.SetDefault("RETRY_MAX_DELAY_MS", 20000)
 	viper.SetDefault("RETRY_JITTER", true)
 }
 
