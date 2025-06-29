@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/hashicorp/golang-lru"
@@ -28,29 +27,39 @@ func (e *Engine) Run(ctx context.Context) {
 
 	// Split the analyzers into different chunks
 	// Calculate total blocks and distribute evenly among workers
-	var workers errgroup.Group
-	totalBlocks := e.config.EndBlock - e.config.StartBlock + 1
-	baseChunkSize := totalBlocks / uint64(len(analyzers))
-	remainder := totalBlocks % uint64(len(analyzers))
 
-	currentStart := e.config.StartBlock
+	// totalBlocks := e.config.EndBlock - e.config.StartBlock + 1
+	// baseChunkSize := totalBlocks / uint64(len(analyzers))
+	// remainder := totalBlocks % uint64(len(analyzers))
+
+	// currentStart := e.config.StartBlock
+	var workers errgroup.Group
+	startBlocks := e.config.StartBlocks
+	endBlocks := e.config.EndBlocks
+
+	if len(startBlocks) != len(endBlocks) && len(startBlocks) != len(analyzers) {
+		panic("startBlocks and endBlocks must have the same length as analyzers")
+	}
+
 	for i := 0; i < len(analyzers); i++ {
 		workerIdx := i
 		worker := analyzers[i]
 
-		// Calculate chunk size for this worker (distribute remainder to first workers)
-		chunkSize := baseChunkSize
-		if uint64(workerIdx) < remainder {
-			chunkSize++
-		}
+		// // Calculate chunk size for this worker (distribute remainder to first workers)
+		// chunkSize := baseChunkSize
+		// if uint64(workerIdx) < remainder {
+		// 	chunkSize++
+		// }
 
-		start := currentStart
-		end := start + chunkSize - 1
-		currentStart = end + 1 // Next worker starts after this one ends
+		// start := currentStart
+		// end := start + chunkSize - 1
+		// currentStart = end + 1 // Next worker starts after this one ends
+
+		start := startBlocks[workerIdx]
+		end := endBlocks[workerIdx]
 
 		workers.Go(func() error {
 			e.log.Info("starting worker", "worker_idx", workerIdx, "start", start, "end", end)
-			fmt.Println("starting worker", workerIdx, start, end)
 			writer := NewResultWriter(e.config.ResultDir, workerIdx)
 
 			for block := start; block <= end; block++ {

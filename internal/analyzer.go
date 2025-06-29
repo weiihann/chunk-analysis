@@ -36,9 +36,9 @@ type Analyzer struct {
 }
 
 type TraceResult struct {
-	Addr     common.Address
-	Bits     *BitSet
-	IsCreate bool
+	Addr common.Address
+	Bits *BitSet
+	Skip bool // Skip this result if it's either a create or self destruct
 
 	// These opcodes access the entire contract code, keep them separate so we can distinguish between
 	// actual code access from the other opcodes versus just these ones.
@@ -47,8 +47,8 @@ type TraceResult struct {
 }
 
 func (t *TraceResult) String() string {
-	if t.IsCreate {
-		return fmt.Sprintf("Addr: %s, IsCreate: true", t.Addr.Hex())
+	if t.Skip {
+		return fmt.Sprintf("Addr: %s, Skip: true", t.Addr.Hex())
 	}
 	return fmt.Sprintf("Addr: %s, Bits: %d, Chunks: %d, CodeOpsCount: %d", t.Addr.Hex(), t.Bits.Count(), t.Bits.ChunkCount(), t.CodeOpsCount)
 }
@@ -65,9 +65,9 @@ func newTraceResult(code *Code) *TraceResult {
 	}
 }
 
-func newTraceResultCreate() *TraceResult {
+func newTraceResultSkip() *TraceResult {
 	return &TraceResult{
-		IsCreate: true,
+		Skip: true,
 	}
 }
 
@@ -212,12 +212,13 @@ func (a *Analyzer) Analyze2(blockNum uint64) (BlockResult, error) {
 	// }
 
 	// ---- Uncomment below to debug
-	// targetTrace := trace[173]
+	// targetTrace := trace[141]
 	// fmt.Println(targetTrace.TxHash)
-	// if err := a.analyze2(&targetTrace, blockNum); err != nil {
+	// res, err := a.analyze2(&targetTrace, blockNum)
+	// if err != nil {
 	// 	return BlockResult{}, err
 	// }
-	// close(results)
+	// merge(res)
 
 	return BlockResult{
 		BlockNum: blockNum,
@@ -427,6 +428,9 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, codes map[
 	results[codes[1][0].Addr] = codes[1][0]
 
 	for i, step := range trace.Steps {
+		// if i == 2954 { // TODO: remove
+		// 	a.log.Info("step 2954")
+		// }
 		// fmt.Printf("step %d: pc %d, op %s depth %d\n", i, step.PC, step.Op, step.Depth) // TODO: remove
 		op := step.Op
 		opLen := len(op)
@@ -460,17 +464,20 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, codes map[
 						results[code.addr] = res
 					}
 					codes[nextStep.Depth] = append(codes[nextStep.Depth], res)
+				} else { // SELFDESTRUCT
+					nextStep := trace.Steps[i+1]
+					codes[nextStep.Depth] = append(codes[nextStep.Depth], newTraceResultSkip())
 				}
 			}
 		case opLen >= 6 && op[:2] == "CR": // CREATE, CREATE2
 			if i+1 < len(trace.Steps) && trace.Steps[i+1].Depth == step.Depth+1 {
 				nextStep := trace.Steps[i+1]
-				codes[nextStep.Depth] = append(codes[nextStep.Depth], newTraceResultCreate())
+				codes[nextStep.Depth] = append(codes[nextStep.Depth], newTraceResultSkip())
 			}
 		}
 	}
 
-	// // TODO: remove
+	// TODO: remove
 	// for depth, res := range codes {
 	// 	fmt.Printf("depth %d: %v\n", depth, res)
 	// }
@@ -487,6 +494,10 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, codes map[
 	// Second iteration, populate the results accordingly.
 	var prevDepth int
 	for _, step := range trace.Steps {
+		// fmt.Printf("step %d: pc %d, op %s depth %d stack %v\n", i, step.PC, step.Op, step.Depth, step.Stack) // TODO: remove
+		// if i == 2954 {
+		// 	a.log.Info("step 3985")
+		// }
 		op := step.Op
 		opLen := len(op)
 		depth := step.Depth
@@ -496,8 +507,7 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, codes map[
 		}
 
 		res := codes[depth][pts[depth]]
-		if res.IsCreate {
-			// We don't need to analyze the code of the created contract, so we skip it
+		if res.Skip {
 			prevDepth = depth
 			continue
 		}
@@ -505,7 +515,7 @@ func (a *Analyzer) analyzeSteps2(blockNum uint64, trace *InnerResult, codes map[
 		switch {
 		case opLen == 4 && op[:2] == "ST": // STOP
 			prevDepth = depth
-			if step.PC < uint64(res.Bits.Size()) {
+			if step.PC <= uint64(res.Bits.Size()) {
 				res.Bits.Set(uint32(step.PC))
 			}
 			continue

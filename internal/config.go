@@ -22,8 +22,8 @@ type Config struct {
 	LogFormat string `mapstructure:"LOG_FORMAT"`
 	LogFile   string `mapstructure:"LOG_FILE"`
 
-	StartBlock uint64 `mapstructure:"START_BLOCK"`
-	EndBlock   uint64 `mapstructure:"END_BLOCK"`
+	StartBlocks []uint64 `mapstructure:"START_BLOCKS"`
+	EndBlocks   []uint64 `mapstructure:"END_BLOCKS"`
 
 	// Retry configuration
 	RetryMaxAttempts int  `mapstructure:"RETRY_MAX_ATTEMPTS"`
@@ -33,8 +33,8 @@ type Config struct {
 }
 
 func (c *Config) String() string {
-	return fmt.Sprintf("Config{RPCURLs: %v, TraceDir: %s, LogLevel: %s, LogFormat: %s, LogFile: %s, StartBlock: %d, EndBlock: %d, RetryMaxAttempts: %d, RetryBaseDelay: %d, RetryMaxDelay: %d, RetryJitter: %t}",
-		c.RPCURLs, c.TraceDir, c.LogLevel, c.LogFormat, c.LogFile, c.StartBlock, c.EndBlock, c.RetryMaxAttempts, c.RetryBaseDelay, c.RetryMaxDelay, c.RetryJitter)
+	return fmt.Sprintf("Config{RPCURLs: %v, TraceDir: %s, LogLevel: %s, LogFormat: %s, LogFile: %s, StartBlocks: %v, EndBlocks: %v, RetryMaxAttempts: %d, RetryBaseDelay: %d, RetryMaxDelay: %d, RetryJitter: %t}",
+		c.RPCURLs, c.TraceDir, c.LogLevel, c.LogFormat, c.LogFile, c.StartBlocks, c.EndBlocks, c.RetryMaxAttempts, c.RetryBaseDelay, c.RetryMaxDelay, c.RetryJitter)
 }
 
 func LoadConfig(path string) (config Config, err error) {
