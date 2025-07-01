@@ -1,0 +1,27 @@
+# Core data analysis dependencies
+pandas>=1.5.0
+numpy>=1.21.0
+
+# Visualization dependencies
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Jupyter notebook dependencies
+jupyter>=1.0.0
+jupyterlab>=3.0.0
+ipykernel>=6.0.0
+ipywidgets>=7.6.0
+
+# Additional utilities
+pathlib2>=2.3.0  # For path handling
+tqdm>=4.60.0     # Progress bars (if needed for large datasets)
+
+# Development dependencies (optional)
+black>=22.0.0     # Code formatting
+pytest>=6.0.0    # Testing framework
+pytest-cov>=3.0.0  # Coverage testing
+nbval>=0.9.6     # Notebook testing
+
+# Performance optimization (optional)
+bottleneck>=1.3.0  # Faster pandas operations
+numexpr>=2.7.0     # Faster numerical expressions
