@@ -1,6 +1,6 @@
 *.env
 bin
 testdata
-results
 internal/analyzer_test.go
 internal/engine_test.go
+results/processed_analysis.csv
