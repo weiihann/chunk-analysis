@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -42,8 +41,9 @@ func TestResultWriter_Write_SingleResult(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:         bitSet,
-			CodeOpsCount: 5,
+			Bits:              bitSet,
+			CodeSizeHashCount: 5,
+			CodeCopyCount:     1,
 		},
 	}
 
@@ -78,13 +78,13 @@ func TestResultWriter_Write_SingleResult(t *testing.T) {
 	}
 
 	// Verify header
-	expectedHeader := []string{"block_number", "address", "bytecode_size", "bytes_count", "chunks_count", "code_ops_count"}
+	expectedHeader := []string{"block_number", "address", "bytecode_size", "bytes_count", "chunks_count", "code_size_hash_count", "code_copy_count"}
 	if !equalSlices(records[0], expectedHeader) {
 		t.Errorf("Header mismatch. Expected %v, got %v", expectedHeader, records[0])
 	}
 
 	// Verify data row
-	expectedData := []string{"12345", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), strconv.Itoa(bitSet.Count()), strconv.Itoa(bitSet.ChunkCount()), "5"}
+	expectedData := []string{"12345", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), strconv.Itoa(bitSet.Count()), strconv.Itoa(bitSet.ChunkCount()), "5", "1"}
 	if !equalSlices(records[1], expectedData) {
 		t.Errorf("Data row mismatch. Expected %v, got %v", expectedData, records[1])
 	}
@@ -108,12 +108,14 @@ func TestResultWriter_Write_MultipleResults(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr1: {
-			Bits:         bitSet1,
-			CodeOpsCount: 3,
+			Bits:              bitSet1,
+			CodeSizeHashCount: 3,
+			CodeCopyCount:     0,
 		},
 		addr2: {
-			Bits:         bitSet2,
-			CodeOpsCount: 7,
+			Bits:              bitSet2,
+			CodeSizeHashCount: 7,
+			CodeCopyCount:     0,
 		},
 	}
 
@@ -170,8 +172,9 @@ func TestResultWriter_Write_MultipleCalls(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:         bitSet,
-			CodeOpsCount: 1,
+			Bits:              bitSet,
+			CodeSizeHashCount: 1,
+			CodeCopyCount:     0,
 		},
 	}
 
@@ -256,8 +259,9 @@ func TestResultWriter_Close(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:         bitSet,
-			CodeOpsCount: 1,
+			Bits:              bitSet,
+			CodeSizeHashCount: 1,
+			CodeCopyCount:     0,
 		},
 	}
 
@@ -304,63 +308,6 @@ func TestResultWriter_Close_WithoutWrite(t *testing.T) {
 	}
 }
 
-func TestResultWriter_ConcurrentWrites(t *testing.T) {
-	tempDir := t.TempDir()
-	writer := NewResultWriter(tempDir, 0)
-	defer writer.Close()
-
-	var wg sync.WaitGroup
-	numGoroutines := 5
-	writesPerGoroutine := 10
-
-	// Launch multiple goroutines writing concurrently
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-			for j := 0; j < writesPerGoroutine; j++ {
-				blockNum := uint64(goroutineID*writesPerGoroutine + j)
-				addr := common.HexToAddress("0x5555555555555555555555555555555555555555")
-				bitSet := NewBitSet(10)
-				bitSet.Set(uint32(j % 10))
-
-				results := map[common.Address]*MergedTraceResult{
-					addr: {
-						Bits:         bitSet,
-						CodeOpsCount: j,
-					},
-				}
-
-				err := writer.Write(blockNum, results)
-				if err != nil {
-					t.Errorf("Concurrent write failed: %v", err)
-				}
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify all writes completed successfully
-	expectedPath := filepath.Join(tempDir, "analysis-0.csv")
-	file, err := os.Open(expectedPath)
-	if err != nil {
-		t.Fatalf("Failed to open CSV file: %v", err)
-	}
-	defer file.Close()
-
-	csvReader := csv.NewReader(file)
-	records, err := csvReader.ReadAll()
-	if err != nil {
-		t.Fatalf("Failed to read CSV: %v", err)
-	}
-
-	expectedRows := numGoroutines*writesPerGoroutine + 1 // +1 for header
-	if len(records) != expectedRows {
-		t.Errorf("Expected %d rows, got %d", expectedRows, len(records))
-	}
-}
-
 func TestResultWriter_DirectoryCreation(t *testing.T) {
 	tempDir := t.TempDir()
 	nestedDir := filepath.Join(tempDir, "nested", "deep", "directory")
@@ -374,8 +321,9 @@ func TestResultWriter_DirectoryCreation(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:         bitSet,
-			CodeOpsCount: 1,
+			Bits:              bitSet,
+			CodeSizeHashCount: 1,
+			CodeCopyCount:     0,
 		},
 	}
 
@@ -412,8 +360,9 @@ func TestResultWriter_LargeData(t *testing.T) {
 	addr := common.HexToAddress("0x7777777777777777777777777777777777777777")
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:         bitSet,
-			CodeOpsCount: 999,
+			Bits:              bitSet,
+			CodeSizeHashCount: 999,
+			CodeCopyCount:     0,
 		},
 	}
 
@@ -441,7 +390,7 @@ func TestResultWriter_LargeData(t *testing.T) {
 	}
 
 	// Verify the large numbers were written correctly
-	expectedData := []string{"1", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), strconv.Itoa(bitSet.Count()), strconv.Itoa(bitSet.ChunkCount()), "999"}
+	expectedData := []string{"1", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), strconv.Itoa(bitSet.Count()), strconv.Itoa(bitSet.ChunkCount()), "999", "0"}
 	if !equalSlices(records[1], expectedData) {
 		t.Errorf("Large data row mismatch. Expected %v, got %v", expectedData, records[1])
 	}

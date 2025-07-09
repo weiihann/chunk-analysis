@@ -43,14 +43,21 @@ type TraceResult struct {
 	// These opcodes access the entire contract code, keep them separate so we can distinguish between
 	// actual code access from the other opcodes versus just these ones.
 	// 0 means no call to this opcode was made.
-	CodeOpsCount int // CODESIZE, CODECOPY, EXTCODESIZE, EXTCODEHASH, EXTCODECOPY
+	CodeSizeHashCount int // CODESIZE, CODEHASH, EXTCODESIZE, EXTCODEHASH
+	CodeCopyCount     int // CODECOPY, EXTCODECOPY
 }
 
 func (t *TraceResult) String() string {
 	if t.Skip {
 		return fmt.Sprintf("Addr: %s, Skip: true", t.Addr.Hex())
 	}
-	return fmt.Sprintf("Addr: %s, Bits: %d, Chunks: %d, CodeOpsCount: %d", t.Addr.Hex(), t.Bits.Count(), t.Bits.ChunkCount(), t.CodeOpsCount)
+	return fmt.Sprintf("Addr: %s, Bits: %d, Chunks: %d, CodeSizeHashCount: %d, CodeCopyCount: %d",
+		t.Addr.Hex(),
+		t.Bits.Count(),
+		t.Bits.ChunkCount(),
+		t.CodeSizeHashCount,
+		t.CodeCopyCount,
+	)
 }
 
 type Code struct {
@@ -86,8 +93,9 @@ type BlockResult struct {
 }
 
 type MergedTraceResult struct {
-	Bits         *BitSet
-	CodeOpsCount int
+	Bits              *BitSet
+	CodeSizeHashCount int
+	CodeCopyCount     int
 }
 
 func (a *Analyzer) Analyze(blockNum uint64) (BlockResult, error) {
@@ -106,11 +114,13 @@ func (a *Analyzer) Analyze(blockNum uint64) (BlockResult, error) {
 		for addr, res := range result {
 			if existing, exists := aggregated[addr]; exists {
 				existing.Bits.Merge(res.Bits)
-				existing.CodeOpsCount += res.CodeOpsCount
+				existing.CodeSizeHashCount += res.CodeSizeHashCount
+				existing.CodeCopyCount += res.CodeCopyCount
 			} else {
 				aggregated[addr] = &MergedTraceResult{
-					Bits:         res.Bits,
-					CodeOpsCount: res.CodeOpsCount,
+					Bits:              res.Bits,
+					CodeSizeHashCount: res.CodeSizeHashCount,
+					CodeCopyCount:     res.CodeCopyCount,
 				}
 			}
 		}
@@ -237,7 +247,11 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, trace *InnerResult, codes map[i
 				if _, ok := results[code.addr]; !ok {
 					results[code.addr] = newTraceResult(code)
 				}
-				results[code.addr].CodeOpsCount++
+				if op[len(op)-1] == 'Y' {
+					results[code.addr].CodeCopyCount++
+				} else {
+					results[code.addr].CodeSizeHashCount++
+				}
 			}
 		// CALL, STATICCALL, DELEGATECALL, CALLCODE
 		case (opLen == 4 && op[3] == 'L') || (opLen == 10 && op[9] == 'L') || (opLen == 12 && op[0] == 'D') || (opLen == 8 && op[2] == 'L'):
@@ -315,8 +329,12 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, trace *InnerResult, codes map[i
 			if err := a.handlePush(res.Bits, &step); err != nil {
 				return nil, err
 			}
-		case opLen > 4 && op[:3] == "COD": // CODEHASH, CODESIZE
-			res.CodeOpsCount++
+		case opLen > 4 && op[:3] == "COD": // CODEHASH, CODESIZE, CODECOPY
+			if op[len(op)-1] == 'Y' {
+				res.CodeCopyCount++
+			} else {
+				res.CodeSizeHashCount++
+			}
 		}
 
 		prevDepth = depth
