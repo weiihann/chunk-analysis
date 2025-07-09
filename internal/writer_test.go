@@ -78,13 +78,13 @@ func TestResultWriter_Write_SingleResult(t *testing.T) {
 	}
 
 	// Verify header
-	expectedHeader := []string{"block_number", "address", "bytecode_size", "bytes_count", "chunks_count", "code_size_hash_count", "code_copy_count"}
+	expectedHeader := []string{"block_number", "address", "bytecode_size", "chunks_data", "code_size_hash_count", "code_copy_count"}
 	if !equalSlices(records[0], expectedHeader) {
 		t.Errorf("Header mismatch. Expected %v, got %v", expectedHeader, records[0])
 	}
 
 	// Verify data row
-	expectedData := []string{"12345", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), strconv.Itoa(bitSet.Count()), strconv.Itoa(bitSet.ChunkCount()), "5", "1"}
+	expectedData := []string{"12345", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), bitSet.EncodeChunks(), "5", "1"}
 	if !equalSlices(records[1], expectedData) {
 		t.Errorf("Data row mismatch. Expected %v, got %v", expectedData, records[1])
 	}
@@ -390,7 +390,7 @@ func TestResultWriter_LargeData(t *testing.T) {
 	}
 
 	// Verify the large numbers were written correctly
-	expectedData := []string{"1", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), strconv.Itoa(bitSet.Count()), strconv.Itoa(bitSet.ChunkCount()), "999", "0"}
+	expectedData := []string{"1", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), bitSet.EncodeChunks(), "999", "0"}
 	if !equalSlices(records[1], expectedData) {
 		t.Errorf("Large data row mismatch. Expected %v, got %v", expectedData, records[1])
 	}
