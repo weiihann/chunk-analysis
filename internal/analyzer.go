@@ -329,7 +329,7 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, trace *InnerResult, codes map[i
 			if err := a.handlePush(res.Bits, &step); err != nil {
 				return nil, err
 			}
-		case opLen > 4 && op[:3] == "COD": // CODEHASH, CODESIZE, CODECOPY
+		case opLen > 4 && op[:3] == "COD": // CODESIZE, CODECOPY
 			if op[len(op)-1] == 'Y' {
 				res.CodeCopyCount++
 			} else {
