@@ -21,7 +21,7 @@ func TestChunkEfficiencyStats(t *testing.T) {
 				TotalChunks:       4,
 				AccessedChunks:    0,
 				AverageEfficiency: 0,
-				Distribution:      [33]int{},
+				Distribution:      [32]int{},
 			},
 		},
 		{
@@ -35,7 +35,7 @@ func TestChunkEfficiencyStats(t *testing.T) {
 				TotalChunks:       4,
 				AccessedChunks:    1,
 				AverageEfficiency: 1.0 / 32.0,
-				Distribution:      func() [33]int { var d [33]int; d[1] = 1; return d }(),
+				Distribution:      func() [32]int { var d [32]int; d[1] = 1; return d }(),
 			},
 		},
 		{
@@ -51,7 +51,7 @@ func TestChunkEfficiencyStats(t *testing.T) {
 				TotalChunks:       4,
 				AccessedChunks:    1,
 				AverageEfficiency: 1.0,
-				Distribution:      func() [33]int { var d [33]int; d[32] = 1; return d }(),
+				Distribution:      func() [32]int { var d [32]int; d[31] = 1; return d }(),
 			},
 		},
 		{
@@ -76,7 +76,7 @@ func TestChunkEfficiencyStats(t *testing.T) {
 				TotalChunks:       4,
 				AccessedChunks:    3,
 				AverageEfficiency: (8.0 + 16.0 + 32.0) / (3.0 * 32.0),
-				Distribution:      func() [33]int { var d [33]int; d[8] = 1; d[16] = 1; d[32] = 1; return d }(),
+				Distribution:      func() [32]int { var d [32]int; d[8] = 1; d[16] = 1; d[31] = 1; return d }(),
 			},
 		},
 	}

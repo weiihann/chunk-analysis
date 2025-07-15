@@ -9,6 +9,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	sampleSize = 10000
+)
+
 type Engine struct {
 	log    *slog.Logger
 	config *Config
@@ -27,12 +31,6 @@ func (e *Engine) Run(ctx context.Context) {
 
 	// Split the analyzers into different chunks
 	// Calculate total blocks and distribute evenly among workers
-
-	// totalBlocks := e.config.EndBlock - e.config.StartBlock + 1
-	// baseChunkSize := totalBlocks / uint64(len(analyzers))
-	// remainder := totalBlocks % uint64(len(analyzers))
-
-	// currentStart := e.config.StartBlock
 	var workers errgroup.Group
 	startBlocks := e.config.StartBlocks
 	endBlocks := e.config.EndBlocks
@@ -40,6 +38,8 @@ func (e *Engine) Run(ctx context.Context) {
 	if len(startBlocks) != len(endBlocks) && len(startBlocks) != len(analyzers) {
 		panic("startBlocks and endBlocks must have the same length as analyzers")
 	}
+
+	blockInc := (e.config.GlobalEndBlock - e.config.GlobalStartBlock + 1) / sampleSize
 
 	for i := 0; i < len(analyzers); i++ {
 		workerIdx := i
@@ -62,7 +62,7 @@ func (e *Engine) Run(ctx context.Context) {
 			e.log.Info("starting worker", "worker_idx", workerIdx, "start", start, "end", end)
 			writer := NewResultWriter(e.config.ResultDir, workerIdx)
 
-			for block := start; block <= end; block++ {
+			for block := start; block <= end; block += blockInc {
 				result, err := worker.Analyze(block)
 				if err != nil {
 					return err
