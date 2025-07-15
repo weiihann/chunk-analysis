@@ -27,6 +27,10 @@ func NewEngine(config *Config) *Engine {
 }
 
 func (e *Engine) Run(ctx context.Context) {
+	// Set chunk size (definitely not a good practice)
+	chunkSize = e.config.ChunkSize
+	e.log.Info("chunk size", "chunk_size", chunkSize)
+
 	analyzers := e.prepare(ctx)
 
 	// Split the analyzers into different chunks

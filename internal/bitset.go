@@ -8,8 +8,9 @@ import (
 
 const (
 	maxContractBytes = 24576
-	chunkSize        = 31
 )
+
+var chunkSize = uint32(15)
 
 // Each bit represents a byte in the contract code.
 // Only represent up to 24,576 bytes because that's the current max contract size.
@@ -17,8 +18,6 @@ const (
 type BitSet struct {
 	bits []uint32
 	size uint32 // Contract size in bytes
-	// setCount   uint32 // Number of accessed bytes
-	// chunkCount uint32 // Number of 32-byte chunks that were accessed
 }
 
 func NewBitSet(size uint32) *BitSet {
@@ -144,84 +143,4 @@ func (b *BitSet) IsFull() bool {
 
 func (b *BitSet) Size() uint32 {
 	return b.size
-}
-
-// ChunkEfficiencyStats represents statistics about chunk usage efficiency
-type ChunkEfficiencyStats struct {
-	TotalChunks       int                // Total number of chunks in the contract
-	AccessedChunks    int                // Number of chunks with at least one byte accessed (same as ChunkCount)
-	AverageEfficiency float64            // Average efficiency of accessed chunks (0-1)
-	Distribution      [chunkSize + 1]int // Distribution of chunks by bytes accessed (index 0 unused, 1-32 used)
-}
-
-// GetChunkEfficiencyStats analyzes how efficiently each 32-byte chunk is used
-func (b *BitSet) GetChunkEfficiencyStats() ChunkEfficiencyStats {
-	stats := ChunkEfficiencyStats{
-		TotalChunks:    len(b.bits),
-		AccessedChunks: 0,
-	}
-
-	totalBytesInAccessedChunks := 0
-
-	for _, word := range b.bits {
-		if word != 0 {
-			// This chunk has at least one byte accessed
-			stats.AccessedChunks++
-
-			// Count how many bytes are accessed in this chunk
-			bytesAccessed := bits.OnesCount32(word)
-			totalBytesInAccessedChunks += bytesAccessed
-
-			// Update distribution (index 0 is unused, 1-32 are used)
-			stats.Distribution[bytesAccessed]++
-		}
-	}
-
-	// Calculate average efficiency
-	if stats.AccessedChunks > 0 {
-		stats.AverageEfficiency = float64(totalBytesInAccessedChunks) / float64(stats.AccessedChunks*chunkSize)
-	}
-
-	return stats
-}
-
-// GetChunkEfficiencies returns the efficiency (bytes accessed / 32) for each chunk
-// Only includes chunks that have at least one byte accessed
-func (b *BitSet) GetChunkEfficiencies() []float64 {
-	var efficiencies []float64
-
-	for _, word := range b.bits {
-		if word != 0 {
-			bytesAccessed := bits.OnesCount32(word)
-			efficiency := float64(bytesAccessed) / float64(chunkSize)
-			efficiencies = append(efficiencies, efficiency)
-		}
-	}
-
-	return efficiencies
-}
-
-// GetChunkDetails returns detailed information about each chunk
-// Returns a slice where each element represents a chunk with its index and bytes accessed
-type ChunkDetail struct {
-	Index         int     // Chunk index (0-based)
-	BytesAccessed int     // Number of bytes accessed in this chunk (0-32)
-	Efficiency    float64 // Efficiency of this chunk (0-1)
-}
-
-func (b *BitSet) GetChunkDetails() []ChunkDetail {
-	var details []ChunkDetail
-
-	for i, word := range b.bits {
-		if word != 0 {
-			bytesAccessed := bits.OnesCount32(word)
-			details = append(details, ChunkDetail{
-				Index:         i,
-				BytesAccessed: bytesAccessed,
-				Efficiency:    float64(bytesAccessed) / float64(chunkSize),
-			})
-		}
-	}
-
-	return details
 }
