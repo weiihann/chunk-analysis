@@ -41,9 +41,9 @@ func TestResultWriter_Write_SingleResult(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:              bitSet,
-			CodeSizeHashCount: 5,
-			CodeCopyCount:     1,
+			Bits:          bitSet,
+			CodeSizeCount: 5,
+			CodeCopyCount: 1,
 		},
 	}
 
@@ -78,7 +78,7 @@ func TestResultWriter_Write_SingleResult(t *testing.T) {
 	}
 
 	// Verify header
-	expectedHeader := []string{"block_number", "address", "bytecode_size", "chunks_data", "code_size_hash_count", "code_copy_count"}
+	expectedHeader := []string{"block_number", "address", "bytecode_size", "chunks_data", "code_size_count", "code_copy_count"}
 	if !equalSlices(records[0], expectedHeader) {
 		t.Errorf("Header mismatch. Expected %v, got %v", expectedHeader, records[0])
 	}
@@ -108,14 +108,14 @@ func TestResultWriter_Write_MultipleResults(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr1: {
-			Bits:              bitSet1,
-			CodeSizeHashCount: 3,
-			CodeCopyCount:     0,
+			Bits:          bitSet1,
+			CodeSizeCount: 3,
+			CodeCopyCount: 0,
 		},
 		addr2: {
-			Bits:              bitSet2,
-			CodeSizeHashCount: 7,
-			CodeCopyCount:     0,
+			Bits:          bitSet2,
+			CodeSizeCount: 7,
+			CodeCopyCount: 0,
 		},
 	}
 
@@ -172,9 +172,9 @@ func TestResultWriter_Write_MultipleCalls(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:              bitSet,
-			CodeSizeHashCount: 1,
-			CodeCopyCount:     0,
+			Bits:          bitSet,
+			CodeSizeCount: 1,
+			CodeCopyCount: 0,
 		},
 	}
 
@@ -259,9 +259,9 @@ func TestResultWriter_Close(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:              bitSet,
-			CodeSizeHashCount: 1,
-			CodeCopyCount:     0,
+			Bits:          bitSet,
+			CodeSizeCount: 1,
+			CodeCopyCount: 0,
 		},
 	}
 
@@ -321,9 +321,9 @@ func TestResultWriter_DirectoryCreation(t *testing.T) {
 
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:              bitSet,
-			CodeSizeHashCount: 1,
-			CodeCopyCount:     0,
+			Bits:          bitSet,
+			CodeSizeCount: 1,
+			CodeCopyCount: 0,
 		},
 	}
 
@@ -353,16 +353,16 @@ func TestResultWriter_LargeData(t *testing.T) {
 
 	// Create a large bitset
 	bitSet := NewBitSet(1000)
-	for i := uint32(0); i < 500; i++ {
-		bitSet.Set(i)
+	for i := uint64(0); i < 500; i++ {
+		bitSet.Set(uint32(i))
 	}
 
 	addr := common.HexToAddress("0x7777777777777777777777777777777777777777")
 	results := map[common.Address]*MergedTraceResult{
 		addr: {
-			Bits:              bitSet,
-			CodeSizeHashCount: 999,
-			CodeCopyCount:     0,
+			Bits:          bitSet,
+			CodeSizeCount: 999,
+			CodeCopyCount: 0,
 		},
 	}
 
@@ -390,7 +390,7 @@ func TestResultWriter_LargeData(t *testing.T) {
 	}
 
 	// Verify the large numbers were written correctly
-	expectedData := []string{"1", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), bitSet.EncodeChunks(), "999", "0"}
+	expectedData := []string{"1", strings.ToLower(addr.Hex()), strconv.Itoa(int(bitSet.Size())), bitSet.EncodeChunks(), "999", "0", "0"}
 	if !equalSlices(records[1], expectedData) {
 		t.Errorf("Large data row mismatch. Expected %v, got %v", expectedData, records[1])
 	}

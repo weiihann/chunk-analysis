@@ -9,10 +9,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const (
-	sampleSize = 10000
-)
-
 type Engine struct {
 	log    *slog.Logger
 	config *Config
@@ -43,7 +39,7 @@ func (e *Engine) Run(ctx context.Context) {
 		panic("startBlocks and endBlocks must have the same length as analyzers")
 	}
 
-	blockInc := (e.config.GlobalEndBlock - e.config.GlobalStartBlock + 1) / sampleSize
+	blockInc := (e.config.GlobalEndBlock - e.config.GlobalStartBlock + 1) / e.config.SampleSize
 
 	for i := 0; i < len(analyzers); i++ {
 		workerIdx := i

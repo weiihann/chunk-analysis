@@ -41,7 +41,7 @@ func (w *ResultWriter) Write(blockNum uint64, results map[common.Address]*Merged
 			address.Hex(),                                      // address
 			strconv.FormatUint(uint64(result.Bits.Size()), 10), // bytecode size
 			result.Bits.EncodeChunks(),                         // encoded chunks data
-			strconv.Itoa(result.CodeSizeHashCount),             // code size hash count
+			strconv.Itoa(result.CodeSizeCount),                 // code size count
 			strconv.Itoa(result.CodeCopyCount),                 // code copy count
 		}
 
@@ -103,7 +103,7 @@ func (w *ResultWriter) initializeFile() error {
 
 	// Write header row only for new files
 	if !fileExists {
-		header := []string{"block_number", "address", "bytecode_size", "chunks_data", "code_size_hash_count", "code_copy_count"}
+		header := []string{"block_number", "address", "bytecode_size", "chunks_data", "code_size_count", "code_copy_count"}
 		if err := w.writer.Write(header); err != nil {
 			return fmt.Errorf("failed to write header: %w", err)
 		}

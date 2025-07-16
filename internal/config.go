@@ -34,12 +34,13 @@ type Config struct {
 	RetryMaxDelay    int  `mapstructure:"RETRY_MAX_DELAY_MS"`
 	RetryJitter      bool `mapstructure:"RETRY_JITTER"`
 
-	ChunkSize uint32 `mapstructure:"CHUNK_SIZE"`
+	ChunkSize  uint32 `mapstructure:"CHUNK_SIZE"`
+	SampleSize uint64 `mapstructure:"SAMPLE_SIZE"`
 }
 
 func (c *Config) String() string {
-	return fmt.Sprintf("Config{RPCURLs: %v, TraceDir: %s, LogLevel: %s, LogFormat: %s, LogFile: %s, GlobalStartBlock: %d, GlobalEndBlock: %d, StartBlocks: %v, EndBlocks: %v, RetryMaxAttempts: %d, RetryBaseDelay: %d, RetryMaxDelay: %d, RetryJitter: %t, ChunkSize: %d}",
-		c.RPCURLs, c.TraceDir, c.LogLevel, c.LogFormat, c.LogFile, c.GlobalStartBlock, c.GlobalEndBlock, c.StartBlocks, c.EndBlocks, c.RetryMaxAttempts, c.RetryBaseDelay, c.RetryMaxDelay, c.RetryJitter, c.ChunkSize)
+	return fmt.Sprintf("Config{RPCURLs: %v, TraceDir: %s, LogLevel: %s, LogFormat: %s, LogFile: %s, GlobalStartBlock: %d, GlobalEndBlock: %d, StartBlocks: %v, EndBlocks: %v, RetryMaxAttempts: %d, RetryBaseDelay: %d, RetryMaxDelay: %d, RetryJitter: %t, ChunkSize: %d, SampleSize: %d}",
+		c.RPCURLs, c.TraceDir, c.LogLevel, c.LogFormat, c.LogFile, c.GlobalStartBlock, c.GlobalEndBlock, c.StartBlocks, c.EndBlocks, c.RetryMaxAttempts, c.RetryBaseDelay, c.RetryMaxDelay, c.RetryJitter, c.ChunkSize, c.SampleSize)
 }
 
 func LoadConfig(path string) (config Config, err error) {
@@ -161,6 +162,7 @@ func setDefaults() {
 	viper.SetDefault("RETRY_MAX_DELAY_MS", 20000)
 	viper.SetDefault("RETRY_JITTER", true)
 	viper.SetDefault("CHUNK_SIZE", 31)
+	viper.SetDefault("SAMPLE_SIZE", 100000)
 }
 
 func expandPath(path string) string {
