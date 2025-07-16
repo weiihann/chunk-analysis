@@ -231,8 +231,8 @@ func (a *Analyzer) analyzeSteps(blockNum uint64, trace *InnerResult, codes map[i
 		opLen := len(op)
 		stack := step.Stack
 		switch {
-		// EXTCODESIZE, EXTCODEHASH, EXTCODECOPY
-		case opLen == 11 && op[0] == 'E':
+		// EXTCODESIZE, EXTCODECOPY
+		case opLen == 11 && op[0] == 'E' && (op[len(op)-1] == 'Y' || op[len(op)-1] == 'E'):
 			stackTop := step.Stack[len(step.Stack)-1]
 			code, err := a.getCode(stackTop, blockNum)
 			if err != nil && !trace.Failed {
