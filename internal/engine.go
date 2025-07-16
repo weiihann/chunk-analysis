@@ -54,7 +54,7 @@ func (e *Engine) Run(ctx context.Context) {
 			writer := NewResultWriter(e.config.ResultDir, workerIdx)
 
 			var retrievers errgroup.Group
-			traces := make(chan traceResult, 1) // buffered to avoid deadlocks
+			traces := make(chan traceResult, 10)
 			retrievers.Go(func() error {
 				defer close(traces)
 				for block := start; block <= end; block += blockInc {
