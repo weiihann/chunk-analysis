@@ -32,6 +32,7 @@ func (e *Engine) Run(ctx context.Context) {
 	// Split the analyzers into different chunks
 	// Calculate total blocks and distribute evenly among workers
 	var workers errgroup.Group
+
 	startBlocks := e.config.StartBlocks
 	endBlocks := e.config.EndBlocks
 
@@ -45,16 +46,6 @@ func (e *Engine) Run(ctx context.Context) {
 		workerIdx := i
 		worker := analyzers[i]
 
-		// // Calculate chunk size for this worker (distribute remainder to first workers)
-		// chunkSize := baseChunkSize
-		// if uint64(workerIdx) < remainder {
-		// 	chunkSize++
-		// }
-
-		// start := currentStart
-		// end := start + chunkSize - 1
-		// currentStart = end + 1 // Next worker starts after this one ends
-
 		start := startBlocks[workerIdx]
 		end := endBlocks[workerIdx]
 
@@ -62,19 +53,56 @@ func (e *Engine) Run(ctx context.Context) {
 			e.log.Info("starting worker", "worker_idx", workerIdx, "start", start, "end", end)
 			writer := NewResultWriter(e.config.ResultDir, workerIdx)
 
-			for block := start; block <= end; block += blockInc {
-				result, err := worker.Analyze(block)
-				if err != nil {
-					return err
+			var retrievers errgroup.Group
+			traces := make(chan traceResult, 1) // buffered to avoid deadlocks
+			retrievers.Go(func() error {
+				defer close(traces)
+				for block := start; block <= end; block += blockInc {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					default:
+						trace, err := worker.retriever.GetTrace(block)
+						if err != nil {
+							return err
+						}
+						select {
+						case traces <- traceResult{
+							blockNum: block,
+							trace:    trace,
+						}:
+						case <-ctx.Done():
+							return ctx.Err()
+						}
+					}
 				}
+				return nil
+			})
 
-				if err := writer.Write(block, result.Results); err != nil {
-					return err
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case traceResult, ok := <-traces:
+					if !ok {
+						// If we broke out of the for loop because channel closed, wait for retrievers
+						if err := retrievers.Wait(); err != nil {
+							return err
+						}
+						return nil
+					}
+					result, err := worker.Analyze(traceResult.blockNum, traceResult.trace)
+					if err != nil {
+						return err
+					}
+
+					if err := writer.Write(traceResult.blockNum, result.Results); err != nil {
+						return err
+					}
+
+					e.log.Info("worker finished", "idx", workerIdx, "block", traceResult.blockNum)
 				}
-
-				e.log.Info("worker finished", "idx", workerIdx, "block", block)
 			}
-			return nil
 		})
 	}
 
@@ -105,4 +133,9 @@ func (e *Engine) prepare(ctx context.Context) []*Analyzer {
 	}
 
 	return analyzers
+}
+
+type traceResult struct {
+	blockNum uint64
+	trace    []TransactionTrace
 }

@@ -98,12 +98,7 @@ type MergedTraceResult struct {
 	CodeCopyCount int
 }
 
-func (a *Analyzer) Analyze(blockNum uint64) (BlockResult, error) {
-	trace, err := a.retriever.GetTrace(blockNum)
-	if err != nil {
-		return BlockResult{}, err
-	}
-
+func (a *Analyzer) Analyze(blockNum uint64, trace []TransactionTrace) (BlockResult, error) {
 	// Aggregate the results and send it back
 	// Merge all results per contract
 	aggregated := make(map[common.Address]*MergedTraceResult)
